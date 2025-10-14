@@ -1,80 +1,82 @@
-#!/bin/bash
-
-# ==============================================================================
-# 全功能 Pass@k 评估脚本 (api_eval_passk_robust.py) 的启动器
-#
-# 功能:
-# - 具备断点续传功能
-# - 可配置 API 端点
-# - 计算两种 Pass@k 指标
-#
-# 使用方法:
-# 1. 修改下方的 "配置参数" 部分，填入你的文件路径和API密钥。
-# 2. (如果需要) 将 'api_eval_passk_robust.py' 替换为你的Python脚本实际文件名。
-# 3. 在终端中给予脚本执行权限: chmod +x run_robust_evaluation.sh
-# 4. 首次运行: ./run_robust_evaluation.sh
-# 5. 若需恢复中断的任务，取消下面命令中 '--resume' 参数的注释再运行。
-# ==============================================================================
-
 # --- 1. 配置参数 (请在此处修改) ---
 
-# -- 文件路径 --
-# 推理脚本生成的、包含多次尝试的预测结果文件
-PREDICTION_FILE="/home/u2021110842/arxiv-appendix-extractor-v4/fill_mask_v0/output_result/qwen3-max_20251011_211800_run_final_result.jsonl"
+# **核心配置**
+# ------------------------------------------------------------------------------
+# 存放所有待评测推理文件 (.jsonl) 的文件夹路径
+# 脚本将处理这个文件夹下的所有 .jsonl 文件
+PREDICTIONS_DIR="/home/u2021110842/arxiv-appendix-extractor-v4/fill_mask_v0/output_result"
 
-# 包含标准答案的原始数据文件
-GROUND_TRUTH_FILE="/home/u2021110842/arxiv-appendix-extractor-v4/fill_mask_v0/output_interline_mask.jsonl"
+# 所有评测任务共享的、唯一的真值文件路径
+GROUND_TRUTH_FILE="/home/u2021110842/arxiv-appendix-extractor-v4/fill_mask_v0/output_interline_mask_v3.jsonl"
 
-# 保存最终评估报告的输出文件路径
-OUTPUT_FILE="/home/u2021110842/arxiv-appendix-extractor-v4/fill_mask_v0/output_result/qwen3-max_20251011_211800_report.json"
-
-# -- API 与模型配置 --
+# -- API 与性能配置 --
+# ------------------------------------------------------------------------------
 # 用于评估的 API 密钥
 API_KEY="sk-YOUR_GPT4O_API_KEY_HERE"
 
-# (可选) 用于评估的模型名称
-MODEL_NAME="gpt-4o-2024-05-13"
-
-# (可选) API 的 Base URL，方便接入不同服务
+# API 的 Base URL
 BASE_URL="https://aihubmix.com/v1"
 
-# -- 性能配置 --
-# (可选) 最大并发API请求数，根据你的API速率限制调整
+# 最大并发API请求数
 PARALLEL_SIZE=32
 
 
-# --- 2. 构造并执行命令 (通常无需修改) ---
+# --- 2. 自动化执行逻辑 (通常无需修改) ---
 
 # 你的Python脚本文件名
 PYTHON_SCRIPT="api_eval_passk_ali.py"
 
-echo "==================================="
-echo "🚀 启动 Pass@k 评估任务..."
-echo "  - 预测文件: $PREDICTION_FILE"
-echo "  - 标准答案: $GROUND_TRUTH_FILE"
-echo "  - 输出报告: $OUTPUT_FILE"
-echo "  - API 端点: $BASE_URL"
-echo "  - 并发数: $PARALLEL_SIZE"
-echo "==================================="
-
-python "$PYTHON_SCRIPT" \
-    --prediction_file "$PREDICTION_FILE" \
-    --ground_truth_file "$GROUND_TRUTH_FILE" \
-    --output_file "$OUTPUT_FILE" \
-    --api_key "$API_KEY" \
-    --model_name "$MODEL_NAME" \
-    --base_url "$BASE_URL" \
-    --parallel_size "$PARALLEL_SIZE" \
-    # --resume  # <-- 如果需要从断点恢复，请删除本行开头的 '#'
-
-# 检查上一个命令的退出状态
-if [ $? -eq 0 ]; then
-    echo "==================================="
-    echo "✅ 评估任务成功完成。"
-    echo "详细报告已保存到: $OUTPUT_FILE"
-    echo "==================================="
-else
-    echo "==================================="
-    echo "❌ 评估任务失败，请检查上面的错误信息。"
-    echo "==================================="
+# 检查预测文件夹是否存在
+if [ ! -d "$PREDICTIONS_DIR" ]; then
+    echo "❌ 错误：找不到预测文件夹: $PREDICTIONS_DIR"
+    exit 1
 fi
+
+# 检查真值文件是否存在
+if [ ! -f "$GROUND_TRUTH_FILE" ]; then
+    echo "❌ 错误：找不到真值文件: $GROUND_TRUTH_FILE"
+    exit 1
+fi
+
+echo "===================================================="
+echo "🤖 启动智能批量评估..."
+echo "将处理 '$PREDICTIONS_DIR' 目录下的所有 .jsonl 文件"
+echo "===================================================="
+echo ""
+
+# 查找并遍历目录下的所有 .jsonl 文件
+# 使用 find 命令以更好地处理文件名中可能包含空格等特殊字符的情况
+find "$PREDICTIONS_DIR" -maxdepth 1 -type f -name "*.jsonl" | while read -r PRED_FILE; do
+
+    # 智能生成输出报告文件名
+    # 例如: /path/model_A.jsonl -> /path/model_A-report.json
+    OUTPUT_FILE="${PRED_FILE%.jsonl}-report.json"
+
+    echo "----------------------------------------------------"
+    echo "▶️  正在处理文件: $(basename "$PRED_FILE")"
+    echo "   - 真值文件: $(basename "$GROUND_TRUTH_FILE")"
+    echo "   - 输出报告将保存为: $(basename "$OUTPUT_FILE")"
+    echo "----------------------------------------------------"
+
+    python "$PYTHON_SCRIPT" \
+        --prediction_file "$PRED_FILE" \
+        --ground_truth_file "$GROUND_TRUTH_FILE" \
+        --output_file "$OUTPUT_FILE" \
+        --api_key "$API_KEY" \
+        --base_url "$BASE_URL" \
+        --parallel_size "$PARALLEL_SIZE" \
+        # --resume  # <-- 如果需要为单个任务恢复，请删除本行开头的 '#'
+
+    # 检查上一个任务的执行结果
+    if [ $? -eq 0 ]; then
+        echo "✅ 成功完成: $(basename "$PRED_FILE")"
+    else
+        echo "⚠️  处理失败: $(basename "$PRED_FILE"). 请检查上方日志。将继续处理下一个文件..."
+    fi
+    echo "" # 增加空行以提高可读性
+
+done
+
+echo "===================================================="
+echo "🎉 所有评估任务已执行完毕。"
+echo "===================================================="
