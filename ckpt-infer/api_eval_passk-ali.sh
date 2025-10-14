@@ -46,7 +46,7 @@ PARALLEL_SIZE=32
 # --- 2. 构造并执行命令 (通常无需修改) ---
 
 # 你的Python脚本文件名
-PYTHON_SCRIPT="api_eval_passk_robust.py"
+PYTHON_SCRIPT="api_eval_passk_ali.py"
 
 echo "==================================="
 echo "🚀 启动 Pass@k 评估任务..."
