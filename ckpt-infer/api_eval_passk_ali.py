@@ -19,7 +19,7 @@ def get_args():
     parser.add_argument('--prediction_file', type=str, required=True, help="推理脚本生成的包含多次尝试的结果文件")
     parser.add_argument('--ground_truth_file', type=str, required=True, help="原始数据文件作为标准答案")
     parser.add_argument('--output_file', type=str, required=True, help="保存详细评测结果的JSON文件")
-     parser.add_argument(
+    parser.add_argument(
         '--api_key', 
         type=str, 
         default=os.getenv("OPENAI_API_KEY"),
