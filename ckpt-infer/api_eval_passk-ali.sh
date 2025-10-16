@@ -1,29 +1,13 @@
-# --- 1. 配置参数 (请在此处修改) ---
-
-# **核心配置**
-# ------------------------------------------------------------------------------
-# 存放所有待评测推理文件 (.jsonl) 的文件夹路径
 # 脚本将处理这个文件夹下的所有 .jsonl 文件
 PREDICTIONS_DIR="/home/u2021110842/arxiv-appendix-extractor-v4/fill_mask_v0/output_result"
 
 # 所有评测任务共享的、唯一的真值文件路径
 GROUND_TRUTH_FILE="/home/u2021110842/arxiv-appendix-extractor-v4/fill_mask_v0/output_interline_mask_v3.jsonl"
-
-# -- API 与性能配置 --
-# ------------------------------------------------------------------------------
-# 用于评估的 API 密钥
-API_KEY="sk-YOUR_GPT4O_API_KEY_HERE"
-
-# API 的 Base URL
-BASE_URL="https://aihubmix.com/v1"
-
 # 最大并发API请求数
-PARALLEL_SIZE=32
+PARALLEL_SIZE=16
 
 
-# --- 2. 自动化执行逻辑 (通常无需修改) ---
 
-# 你的Python脚本文件名
 PYTHON_SCRIPT="api_eval_passk_ali.py"
 
 # 检查预测文件夹是否存在
@@ -62,8 +46,6 @@ find "$PREDICTIONS_DIR" -maxdepth 1 -type f -name "*.jsonl" | while read -r PRED
         --prediction_file "$PRED_FILE" \
         --ground_truth_file "$GROUND_TRUTH_FILE" \
         --output_file "$OUTPUT_FILE" \
-        --api_key "$API_KEY" \
-        --base_url "$BASE_URL" \
         --parallel_size "$PARALLEL_SIZE" \
         # --resume  # <-- 如果需要为单个任务恢复，请删除本行开头的 '#'
 

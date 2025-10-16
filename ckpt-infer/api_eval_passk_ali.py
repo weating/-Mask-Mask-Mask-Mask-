@@ -12,18 +12,26 @@ import time
 import concurrent.futures
 from tqdm import tqdm
 
-
 def get_args():
-    """解析命令行参数"""
     parser = ArgumentParser(
         description="(全功能版) 使用GPT-4o并行评测Pass@k，具备断点续传、智能重试和可配置API端点。"
     )
     parser.add_argument('--prediction_file', type=str, required=True, help="推理脚本生成的包含多次尝试的结果文件")
     parser.add_argument('--ground_truth_file', type=str, required=True, help="原始数据文件作为标准答案")
     parser.add_argument('--output_file', type=str, required=True, help="保存详细评测结果的JSON文件")
-    parser.add_argument('--api_key', type=str, required=True, help="用于评测的GPT-4o API Key")
+     parser.add_argument(
+        '--api_key', 
+        type=str, 
+        default=os.getenv("OPENAI_API_KEY"),
+        help="API Key。默认从环境变量 OPENAI_API_KEY 读取。"
+    )
+    parser.add_argument(
+        '--base_url', 
+        type=str, 
+        default=os.getenv("OPENAI_BASE_URL", "https://aihubmix.com/v1"),
+        help="API Base URL。默认从环境变量 OPENAI_BASE_URL 读取，若无则使用硬编码值。"
+    )
     parser.add_argument('--model_name', type=str, default='gpt-4o-2024-05-13', help="用于评测的模型名称")
-    parser.add_argument('--base_url', type=str, default="https://aihubmix.com/v1", help="可配置的API Base URL")
     parser.add_argument('--parallel_size', type=int, default=32, help="最大并发API请求数")
     parser.add_argument('--resume', action='store_true', help='从上次中断的地方继续评测')
     args = parser.parse_args()
@@ -31,7 +39,6 @@ def get_args():
 
 
 def read_jsonl(file_path: str) -> List[Dict[str, Any]]:
-    """读取.jsonl文件，如果文件不存在则返回空列表"""
     data = []
     if not os.path.exists(file_path):
         return []
@@ -45,7 +52,6 @@ def read_jsonl(file_path: str) -> List[Dict[str, Any]]:
 
 
 class RobustPassKEvaluator:
-    """使用GPT-4o并行评测Pass@k的评估器 (已注入所有鲁棒性功能)"""
     
     def __init__(self, api_key: str, model_name: str, base_url: str, parallel_size: int):
         self.api_key = api_key
@@ -55,26 +61,25 @@ class RobustPassKEvaluator:
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         
         self.evaluation_prompt = """
-你是一个专业的LaTeX公式评估专家。请评估预测的LaTeX公式与标准答案的匹配程度。
+        你是一个专业的LaTeX公式评估专家。请评估预测的LaTeX公式与标准答案的匹配程度。
 
-评估标准：
-1. 精确匹配：预测公式与标准答案在数学意义上完全相同。
-2. 部分匹配：预测公式与标准答案在数学意义上相似，但可能有细微差异。
-3. 不匹配：预测公式与标准答案在数学意义上不同。
+        评估标准：
+        1. 精确匹配：预测公式与标准答案在数学意义上完全相同。
+        2. 部分匹配：预测公式与标准答案在数学意义上相似，但可能有细微差异。
+        3. 不匹配：预测公式与标准答案在数学意义上不同。
 
-标准答案：{ground_truth}
-预测结果：{prediction}
+        标准答案：{ground_truth}
+        预测结果：{prediction}
 
-请严格按照以下JSON格式返回评估结果，不要添加任何额外说明：
-{{
-    "exact_match": true/false,
-    "partial_match": true/false,
-    "explanation": "评估说明"
-}}
-"""
+        请严格按照以下JSON格式返回评估结果，不要添加任何额外说明：
+        {{
+            "exact_match": true/false,
+            "partial_match": true/false,
+            "explanation": "评估说明"
+        }}
+    """
 
     def _validate_response(self, response: Any) -> bool:
-        """主动验证API响应的格式是否正确"""
         try:
             if not hasattr(response, 'choices') or not response.choices: return False
             message = response.choices[0].message
@@ -85,7 +90,6 @@ class RobustPassKEvaluator:
             return False
 
     def call_gpt4o(self, prompt: str, max_retries: int = 10) -> Dict[str, Any]:
-        """调用GPT-4o API，包含智能重试、详细错误处理和主动验证"""
         for attempt in range(max_retries):
             try:
                 time.sleep(random.uniform(0.1, 0.5))
@@ -121,7 +125,6 @@ class RobustPassKEvaluator:
         return {'exact_match': False, 'partial_match': False, 'explanation': f'API调用失败超过{max_retries}次'}
 
     def evaluate_single_pair(self, prediction: str, ground_truth: str) -> Dict[str, Any]:
-        """评估单个预测-真实值对，处理反斜杠转义"""
         if not prediction or not ground_truth:
             return {'exact_match': False, 'partial_match': False, 'explanation': '预测或真值为空'}
         
@@ -133,7 +136,6 @@ class RobustPassKEvaluator:
         return self.call_gpt4o(prompt)
 
     def evaluate_sample(self, prediction_item: Dict, ground_truth_item: Dict) -> Dict:
-        """对单个样本的所有尝试进行并行评测，并分别统计两种成功次数"""
         sample_id = ground_truth_item.get('id', 'unknown_id')
         gt_answers = ground_truth_item.get('answers', [])
         pred_extracts = prediction_item.get('extract_answers', [])
@@ -185,7 +187,6 @@ class RobustPassKEvaluator:
         }
 
     def batch_evaluate(self, predictions: List[Dict], ground_truths: List[Dict], intermediate_file_path: str) -> List[Dict]:
-        """使用顶层线程池并行处理所有样本，并实现增量保存"""
         if len(predictions) != len(ground_truths):
             raise ValueError("预测和真值文件行数不匹配!")
 
@@ -213,8 +214,8 @@ class RobustPassKEvaluator:
 
         return all_sample_results
 
+
 def calculate_and_report_metrics(sample_results: List[Dict]):
-    """计算并生成包含两种pass@k指标的丰富报告"""
     total_samples = len(sample_results)
     if total_samples == 0:
         print("没有可供分析的结果。"); return {}
@@ -277,7 +278,6 @@ def calculate_and_report_metrics(sample_results: List[Dict]):
     report += "="*70
     print(report)
     return metrics
-
 
 
 def main():
